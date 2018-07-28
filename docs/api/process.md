@@ -16,10 +16,18 @@ In sandboxed renderers the `process` object contains only a subset of the APIs:
 - `getHeapStatistics()`
 - `getProcessMemoryInfo()`
 - `getSystemMemoryInfo()`
+- `getCPUUsage()`
+- `getIOCounters()`
 - `argv`
 - `execPath`
 - `env`
+- `pid`
+- `arch`
 - `platform`
+- `resourcesPath`
+- `type`
+- `version`
+- `versions`
 
 ## Events
 

@@ -39,7 +39,8 @@ class AtomBindings {
   static v8::Local<v8::Value> GetProcessMemoryInfo(v8::Isolate* isolate);
   static v8::Local<v8::Value> GetSystemMemoryInfo(v8::Isolate* isolate,
                                                   mate::Arguments* args);
-  v8::Local<v8::Value> GetCPUUsage(v8::Isolate* isolate);
+  static v8::Local<v8::Value> GetCPUUsage(base::ProcessMetrics* metrics,
+                                          v8::Isolate* isolate);
   static v8::Local<v8::Value> GetIOCounters(v8::Isolate* isolate);
 
  private:
