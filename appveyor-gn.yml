@@ -8,48 +8,34 @@ environment:
   DISABLE_CRASH_REPORTER_TESTS: true
   ELECTRON_ENABLE_LOGGING: true
 build_script:
-- ps: |
-    git config --global core.longpaths true
-    cd ..
-    New-Item -Name src -ItemType directory
-    Move-Item $env:APPVEYOR_BUILD_FOLDER -Destination src\electron
+  - ps: git config --global core.longpaths true
+  - ps: cd ..
+  - ps: New-Item -Name src -ItemType directory
+  - ps: Move-Item $env:APPVEYOR_BUILD_FOLDER -Destination src\electron
+  - ps: $env:CHROMIUM_BUILDTOOLS_PATH="$pwd\src\buildtools"
+  - ps: >-
+        gclient config
+        --name "src\electron"
+        --unmanaged
+        --cache-dir "C:\Users\electron\libcc_cache"
+        "https://github.com/electron/electron"
+        2>$null
 
-    $env:CHROMIUM_BUILDTOOLS_PATH="$pwd\src\buildtools"
-
-    gclient config --name "src\electron" --unmanaged --cache-dir "C:\Users\electron\libcc_cache" "https://github.com/electron/electron"
-
-    gclient sync --with_branch_heads --with_tags
-    cd src
-    gn gen out\Default '--args=import(\"//electron/build/args/debug.gn\")'
-    if ($LastExitCode -ne 0) {
-      throw "GN gen failed with exit code $LastExitCode"
-    }
-
-    ninja -C out\Default electron:electron_app
-
-    if ($LastExitCode -ne 0) {
-      throw "Build failed with exit code $LastExitCode"
-    } else {
-      "Build succeeded."
-    }
+        Write-Output "hmmm"
+  - ps: gclient sync --with_branch_heads --with_tags
+  - ps: cd src
+  - ps: gn gen out\Default '--args=import(\"//electron/build/args/debug.gn\")'
+  - ps: ninja -C out\Default electron:electron_app
 test_script:
-- ps: |
-    ninja -C out/Default electron/build/node:headers
-    if ($LastExitCode -ne 0) { throw "Building node headers failed with exit code $LastExitCode" }
-    $env:npm_config_nodedir="$pwd/out/Default/gen/node_headers"
-    Push-Location
-    cd electron/spec
-    npm install
-    Pop-Location
-
-    python -c 'import subprocess; subprocess.check_call([\"./out/Default/electron.exe\", \"electron/spec\", \"--ci\"])'
-
-    if ($LastExitCode -ne 0) {
-      throw "Tests failed with exit code $LastExitCode"
-    } else {
-      Write-Output "Tests succeeded."
-    }
-    # TODO(nornagon): verify-ffmpeg step
+  - ps: ninja -C out/Default electron/build/node:headers
+  - ps: |
+      $env:npm_config_nodedir="$pwd/out/Default/gen/node_headers"
+      Push-Location
+      cd electron/spec
+      npm install
+      Pop-Location
+  - ps: python -c 'import subprocess; subprocess.check_call([\"./out/Default/electron.exe\", \"electron/spec\", \"--ci\"])'
+  # TODO(nornagon): verify-ffmpeg step
 artifacts:
 - path: test-results.xml
   name: test-results.xml
