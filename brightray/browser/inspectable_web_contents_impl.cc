@@ -26,6 +26,7 @@
 #include "components/prefs/pref_registry_simple.h"
 #include "components/prefs/pref_service.h"
 #include "components/prefs/scoped_user_pref_update.h"
+#include "content/browser/web_contents/web_contents_impl.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/host_zoom_map.h"
 #include "content/public/browser/navigation_handle.h"
@@ -212,7 +213,9 @@ InspectableWebContentsImpl::InspectableWebContentsImpl(
       static_cast<BrowserContext*>(web_contents_->GetBrowserContext());
   pref_service_ = context->prefs();
   auto* bounds_dict = pref_service_->GetDictionary(kDevToolsBoundsPref);
-  if (bounds_dict) {
+  bool is_guest = static_cast<content::WebContentsImpl*>(web_contents)
+                      ->GetBrowserPluginGuest();
+  if (bounds_dict && !is_guest) {
     DictionaryToRect(*bounds_dict, &devtools_bounds_);
     // Sometimes the devtools window is out of screen or has too small size.
     if (devtools_bounds_.height() < 100 || devtools_bounds_.width() < 100) {

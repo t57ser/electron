@@ -315,9 +315,6 @@
         '<(libchromiumcontent_src_dir)/third_party/protobuf/src',
         # The 'third_party/webrtc/modules/desktop_capture/desktop_capture_options.h' is using 'rtc_base/constructormagic.h'.
         '<(libchromiumcontent_src_dir)/third_party/webrtc',
-        # leveldb includes are required
-        '<(libchromiumcontent_src_dir)/third_party/leveldatabase/src',
-        '<(libchromiumcontent_src_dir)/third_party/leveldatabase/src/include',
       ],
       'direct_dependent_settings': {
         'include_dirs': [

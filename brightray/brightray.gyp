@@ -26,6 +26,9 @@
         '<(libchromiumcontent_src_dir)/third_party/WebKit',
         '<(libchromiumcontent_src_dir)/third_party/khronos',
         '<(libchromiumcontent_src_dir)/third_party/protobuf/src',
+        # leveldb includes are required
+        '<(libchromiumcontent_src_dir)/third_party/leveldatabase/src',
+        '<(libchromiumcontent_src_dir)/third_party/leveldatabase/src/include',
         '<(libchromiumcontent_dir)/gen',
       ],
       'direct_dependent_settings': {
@@ -42,6 +45,9 @@
           '<(libchromiumcontent_src_dir)/third_party/mojo/src',
           '<(libchromiumcontent_src_dir)/third_party/khronos',
           '<(libchromiumcontent_src_dir)/third_party/WebKit',
+          # leveldb includes are required
+          '<(libchromiumcontent_src_dir)/third_party/leveldatabase/src',
+          '<(libchromiumcontent_src_dir)/third_party/leveldatabase/src/include',
           '<(libchromiumcontent_dir)/gen',
           '<(libchromiumcontent_dir)/gen/third_party/WebKit',
         ],

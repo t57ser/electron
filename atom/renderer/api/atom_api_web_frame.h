@@ -57,8 +57,9 @@ class WebFrame : public mate::Wrappable<WebFrame> {
   void RegisterElementResizeCallback(
       int element_instance_id,
       const GuestViewContainer::ResizeCallback& callback);
-  void AttachGuest(int element_instance_id);
   void DetachGuest(int element_instance_id);
+  int AttachIframeGuest(int element_instance_id,
+                        v8::Local<v8::Value> content_window);
 
   // Set the provider that will be used by SpellCheckClient for spell check.
   void SetSpellCheckProvider(mate::Arguments* args,
