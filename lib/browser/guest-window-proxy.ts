@@ -74,7 +74,8 @@ ipcMainInternal.on(
     }
 
     const referrer: Electron.Referrer = { url: '', policy: 'strict-origin-when-cross-origin' };
-    const browserWindowOptions = event.sender._callWindowOpenHandler(event, { url, frameName, features, disposition: 'new-window', referrer });
+    const result = event.sender._callWindowOpenHandler(event, { url, frameName, features, disposition: 'new-window', referrer });
+    const browserWindowOptions = result.browserWindowConstructorOptions;
     if (event.defaultPrevented) {
       event.returnValue = null;
       return;
@@ -89,7 +90,8 @@ ipcMainInternal.on(
         url: url || 'about:blank',
         frameName: frameName || '',
         features: features || ''
-      }
+      },
+      closeWithOpener: result.closeWithOpener,
     });
 
     event.returnValue = guest ? guest.webContents.id : null;
