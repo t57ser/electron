@@ -481,41 +481,51 @@ WebContents.prototype.loadURL = function (url, options) {
   return p;
 };
 
-WebContents.prototype.setWindowOpenHandler = function (handler: (details: Electron.HandlerDetails) => ({action: 'allow'} | {action: 'deny', overrideBrowserWindowOptions?: BrowserWindowConstructorOptions})) {
+WebContents.prototype.setWindowOpenHandler = function (handler: (details: Electron.HandlerDetails) => ({action: 'deny'} | {action: 'allow', overrideBrowserWindowOptions?: BrowserWindowConstructorOptions, closeWithOpener?: boolean})) {
   this._windowOpenHandler = handler;
 };
 
-WebContents.prototype._callWindowOpenHandler = function (event: Electron.Event, details: Electron.HandlerDetails): BrowserWindowConstructorOptions | null {
+WebContents.prototype._callWindowOpenHandler = function (event: Electron.Event, details: Electron.HandlerDetails): {browserWindowConstructorOptions: BrowserWindowConstructorOptions | null, closeWithOpener: boolean} {
+  const defaultResponse = {
+    browserWindowConstructorOptions: null,
+    closeWithOpener: true,
+  };
   if (!this._windowOpenHandler) {
-    return null;
+    return defaultResponse;
   }
   const response = this._windowOpenHandler(details);
 
   if (typeof response !== 'object') {
     event.preventDefault();
     console.error(`The window open handler response must be an object, but was instead of type '${typeof response}'.`);
-    return null;
+    return defaultResponse;
   }
 
   if (response === null) {
     event.preventDefault();
     console.error('The window open handler response must be an object, but was instead null.');
-    return null;
+    return defaultResponse;
   }
 
   if (response.action === 'deny') {
     event.preventDefault();
-    return null;
+    return defaultResponse;
   } else if (response.action === 'allow') {
     if (typeof response.overrideBrowserWindowOptions === 'object' && response.overrideBrowserWindowOptions !== null) {
-      return response.overrideBrowserWindowOptions;
+      return {
+        browserWindowConstructorOptions: response.overrideBrowserWindowOptions,
+        closeWithOpener: typeof response.closeWithOpener === "boolean" ? response.closeWithOpener : true,
+      };
     } else {
-      return {};
+      return {
+        browserWindowConstructorOptions: {},
+        closeWithOpener: typeof response.closeWithOpener === "boolean" ? response.closeWithOpener : true,
+      };
     }
   } else {
     event.preventDefault();
     console.error('The window open handler response must be an object with an \'action\' property of \'allow\' or \'deny\'.');
-    return null;
+    return defaultResponse;
   }
 };
 
@@ -637,7 +647,8 @@ WebContents.prototype._init = function () {
         postBody,
         disposition
       };
-      const options = this._callWindowOpenHandler(event, details);
+      const result = this._callWindowOpenHandler(event, details);
+      const options = result.browserWindowConstructorOptions;
       if (!event.defaultPrevented) {
         openGuestWindow({
           event,
@@ -646,12 +657,14 @@ WebContents.prototype._init = function () {
           referrer,
           postData,
           overrideBrowserWindowOptions: options || {},
-          windowOpenArgs: details
+          windowOpenArgs: details,
+          closeWithOpener: result.closeWithOpener,
         });
       }
     });
 
     let windowOpenOverriddenOptions: BrowserWindowConstructorOptions | null = null;
+    let windowOpenCloseWithOpenerOption: boolean = true;
     this.on('-will-add-new-contents' as any, (event: ElectronInternal.Event, url: string, frameName: string, rawFeatures: string, disposition: Electron.HandlerDetails['disposition'], referrer: Electron.Referrer, postData: PostData) => {
       const postBody = postData ? {
         data: postData,
@@ -665,7 +678,9 @@ WebContents.prototype._init = function () {
         referrer,
         postBody
       };
-      windowOpenOverriddenOptions = this._callWindowOpenHandler(event, details);
+      const result = this._callWindowOpenHandler(event, details);
+      windowOpenCloseWithOpenerOption = result.closeWithOpener;
+      windowOpenOverriddenOptions = result.browserWindowConstructorOptions;
       // if attempting to use this API with the deprecated new-window event,
       // windowOpenOverriddenOptions will always return null. This ensures
       // short-term backwards compatibility until new-window is removed.
@@ -698,6 +713,8 @@ WebContents.prototype._init = function () {
       referrer: Electron.Referrer, rawFeatures: string, postData: PostData) => {
       const overriddenOptions = windowOpenOverriddenOptions || undefined;
       windowOpenOverriddenOptions = null;
+      // true is the default
+      windowOpenCloseWithOpenerOption = true;
 
       if ((disposition !== 'foreground-tab' && disposition !== 'new-window' &&
            disposition !== 'background-tab')) {
@@ -717,7 +734,8 @@ WebContents.prototype._init = function () {
           url,
           frameName,
           features: rawFeatures
-        }
+        },
+        closeWithOpener: windowOpenCloseWithOpenerOption,
       });
     });
   }
