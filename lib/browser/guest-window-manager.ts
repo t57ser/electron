@@ -117,9 +117,12 @@ const handleWindowLifecycleEvents = function ({ embedder, guest, frameName, clos
 
   const cachedGuestId = guest.webContents.id;
   const closedByUser = function () {
-    embedder._sendInternal(`${IPC_MESSAGES.GUEST_WINDOW_MANAGER_WINDOW_CLOSED}_${cachedGuestId}`);
-    if (closeWithOpener) {
-      embedder.removeListener('current-render-view-deleted' as any, closedByEmbedder);
+    // Embedder might have been closed
+    if (!embedder.isDestroyed()) {
+      embedder._sendInternal(`${IPC_MESSAGES.GUEST_WINDOW_MANAGER_WINDOW_CLOSED}_${cachedGuestId}`);
+      if (closeWithOpener) {
+        embedder.removeListener('current-render-view-deleted' as any, closedByEmbedder);
+      }
     }
   };
   if (closeWithOpener) {
@@ -185,7 +188,7 @@ function emitDeprecatedNewWindowEvent ({ event, embedder, guest, windowOpenArgs,
         embedder: event.sender,
         guest: newGuest,
         frameName,
-        closeWithOpener: true,
+        closeWithOpener: true
       });
     }
     return true;
