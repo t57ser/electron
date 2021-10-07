@@ -91,7 +91,7 @@ ipcMainInternal.on(
         frameName: frameName || '',
         features: features || ''
       },
-      closeWithOpener: result.closeWithOpener,
+      closeWithOpener: result.closeWithOpener
     });
 
     event.returnValue = guest ? guest.webContents.id : null;
