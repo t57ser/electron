@@ -38,6 +38,8 @@
 #include "content/browser/renderer_host/render_widget_host_view_base.h"  // nogncheck
 #include "content/public/browser/child_process_security_policy.h"
 #include "content/public/browser/context_menu_params.h"
+#include "content/public/browser/desktop_media_id.h"
+#include "content/public/browser/desktop_streams_registry.h"
 #include "content/public/browser/download_request_utils.h"
 #include "content/public/browser/favicon_status.h"
 #include "content/public/browser/file_select_listener.h"
@@ -72,6 +74,7 @@
 #include "ppapi/buildflags/buildflags.h"
 #include "printing/buildflags/buildflags.h"
 #include "printing/print_job_constants.h"
+#include "services/resource_coordinator/public/cpp/memory_instrumentation/memory_instrumentation.h"
 #include "services/service_manager/public/cpp/interface_provider.h"
 #include "shell/browser/api/electron_api_browser_window.h"
 #include "shell/browser/api/electron_api_debugger.h"
@@ -99,6 +102,7 @@
 #include "shell/browser/web_view_guest_delegate.h"
 #include "shell/browser/web_view_manager.h"
 #include "shell/common/api/electron_api_native_image.h"
+#include "shell/common/api/electron_bindings.h"
 #include "shell/common/color_util.h"
 #include "shell/common/electron_constants.h"
 #include "shell/common/gin_converters/base_converter.h"
@@ -424,7 +428,7 @@ bool IsDeviceNameValid(const std::u16string& device_name) {
 #endif
 }
 
-std::u16string GetDefaultPrinterAsync() {
+std::pair<std::string, std::u16string> GetDefaultPrinterAsync() {
 #if defined(OS_WIN)
   // Blocking is needed here because Windows printer drivers are oftentimes
   // not thread-safe and have to be accessed on the UI thread.
@@ -435,18 +439,25 @@ std::u16string GetDefaultPrinterAsync() {
       printing::PrintBackend::CreateInstance(
           g_browser_process->GetApplicationLocale());
   std::string printer_name;
-  print_backend->GetDefaultPrinterName(printer_name);
+  printing::mojom::ResultCode code =
+      print_backend->GetDefaultPrinterName(printer_name);
 
-  // Some devices won't have a default printer, so we should
-  // also check for existing printers and pick the first
-  // one should it exist.
+  // We don't want to return if this fails since some devices won't have a
+  // default printer.
+  if (code != printing::mojom::ResultCode::kSuccess)
+    LOG(ERROR) << "Failed to get default printer name";
+
+  // Check for existing printers and pick the first one should it exist.
   if (printer_name.empty()) {
     printing::PrinterList printers;
-    print_backend->EnumeratePrinters(&printers);
+    if (print_backend->EnumeratePrinters(&printers) !=
+        printing::mojom::ResultCode::kSuccess)
+      return std::make_pair("Failed to enumerate printers", std::u16string());
     if (!printers.empty())
       printer_name = printers.front().printer_name;
   }
-  return base::UTF8ToUTF16(printer_name);
+
+  return std::make_pair(std::string(), base::UTF8ToUTF16(printer_name));
 }
 
 // Copied from
@@ -930,8 +941,6 @@ WebContents::~WebContents() {
   }
 
   inspectable_web_contents_->GetView()->SetDelegate(nullptr);
-  if (guest_delegate_)
-    guest_delegate_->WillDestroy();
 
   // This event is only for internal use, which is emitted when WebContents is
   // being destroyed.
@@ -1697,6 +1706,9 @@ void WebContents::MessageTo(int32_t web_contents_id,
     gin::Handle<WebFrameMain> web_frame_main =
         WebFrameMain::From(JavascriptEnvironment::GetIsolate(), frame);
 
+    if (!web_frame_main->CheckRenderFrame())
+      return;
+
     int32_t sender_id = ID();
     web_frame_main->GetRendererApi()->Message(false /* internal */, channel,
                                               std::move(arguments), sender_id);
@@ -1945,6 +1957,10 @@ void WebContents::WebContentsDestroyed() {
     return;
   wrapper->SetAlignedPointerInInternalField(0, nullptr);
 
+  // Tell WebViewGuestDelegate that the WebContents has been destroyed.
+  if (guest_delegate_)
+    guest_delegate_->WillDestroy();
+
   Observe(nullptr);
   Emit("destroyed");
 }
@@ -2182,6 +2198,33 @@ void WebContents::SetWebRTCIPHandlingPolicy(
       webrtc_ip_handling_policy;
 
   web_contents()->SyncRendererPrefs();
+}
+
+std::string WebContents::GetMediaSourceID(
+    content::WebContents* request_web_contents) {
+  auto* frame_host = web_contents()->GetMainFrame();
+  if (!frame_host)
+    return std::string();
+
+  content::DesktopMediaID media_id(
+      content::DesktopMediaID::TYPE_WEB_CONTENTS,
+      content::DesktopMediaID::kNullId,
+      content::WebContentsMediaCaptureId(frame_host->GetProcess()->GetID(),
+                                         frame_host->GetRoutingID()));
+
+  auto* request_frame_host = request_web_contents->GetMainFrame();
+  if (!request_frame_host)
+    return std::string();
+
+  std::string id =
+      content::DesktopStreamsRegistry::GetInstance()->RegisterStream(
+          request_frame_host->GetProcess()->GetID(),
+          request_frame_host->GetRoutingID(),
+          url::Origin::Create(
+              request_frame_host->GetLastCommittedURL().GetOrigin()),
+          media_id, "", content::kRegistryStreamTypeTab);
+
+  return id;
 }
 
 bool WebContents::IsCrashed() const {
@@ -2435,7 +2478,8 @@ void WebContents::OnGetDefaultPrinter(
     printing::CompletionCallback print_callback,
     std::u16string device_name,
     bool silent,
-    std::u16string default_printer) {
+    // <error, default_printer>
+    std::pair<std::string, std::u16string> info) {
   // The content::WebContents might be already deleted at this point, and the
   // PrintViewManagerElectron class does not do null check.
   if (!web_contents()) {
@@ -2444,8 +2488,14 @@ void WebContents::OnGetDefaultPrinter(
     return;
   }
 
-  std::u16string printer_name =
-      device_name.empty() ? default_printer : device_name;
+  if (!info.first.empty()) {
+    if (print_callback)
+      std::move(print_callback).Run(false, info.first);
+    return;
+  }
+
+  // If the user has passed a deviceName use it, otherwise use default printer.
+  std::u16string printer_name = device_name.empty() ? info.second : device_name;
 
   // If there are no valid printers available on the network, we bail.
   if (printer_name.empty() || !IsDeviceNameValid(printer_name)) {
@@ -3214,6 +3264,26 @@ void WebContents::SetImageAnimationPolicy(const std::string& new_policy) {
   web_contents()->OnWebPreferencesChanged();
 }
 
+v8::Local<v8::Promise> WebContents::GetProcessMemoryInfo(v8::Isolate* isolate) {
+  gin_helper::Promise<gin_helper::Dictionary> promise(isolate);
+  v8::Local<v8::Promise> handle = promise.GetHandle();
+
+  auto* frame_host = web_contents()->GetMainFrame();
+  if (!frame_host) {
+    promise.RejectWithErrorMessage("Failed to create memory dump");
+    return handle;
+  }
+
+  auto pid = frame_host->GetProcess()->GetProcess().Pid();
+  v8::Global<v8::Context> context(isolate, isolate->GetCurrentContext());
+  memory_instrumentation::MemoryInstrumentation::GetInstance()
+      ->RequestGlobalDumpForPid(
+          pid, std::vector<std::string>(),
+          base::BindOnce(&ElectronBindings::DidReceiveMemoryDump,
+                         std::move(context), std::move(promise), pid));
+  return handle;
+}
+
 v8::Local<v8::Promise> WebContents::TakeHeapSnapshot(
     v8::Isolate* isolate,
     const base::FilePath& file_path) {
@@ -3633,7 +3703,7 @@ void WebContents::OnDevToolsSearchCompleted(
     const std::vector<std::string>& file_paths) {
   base::ListValue file_paths_value;
   for (const auto& file_path : file_paths) {
-    file_paths_value.AppendString(file_path);
+    file_paths_value.Append(file_path);
   }
   base::Value request_id_value(request_id);
   base::Value file_system_path_value(file_system_path);
@@ -3834,11 +3904,13 @@ v8::Local<v8::ObjectTemplate> WebContents::FillObjectTemplate(
       .SetMethod("isBeingCaptured", &WebContents::IsBeingCaptured)
       .SetMethod("setWebRTCIPHandlingPolicy",
                  &WebContents::SetWebRTCIPHandlingPolicy)
+      .SetMethod("getMediaSourceId", &WebContents::GetMediaSourceID)
       .SetMethod("getWebRTCIPHandlingPolicy",
                  &WebContents::GetWebRTCIPHandlingPolicy)
       .SetMethod("takeHeapSnapshot", &WebContents::TakeHeapSnapshot)
       .SetMethod("setImageAnimationPolicy",
                  &WebContents::SetImageAnimationPolicy)
+      .SetMethod("_getProcessMemoryInfo", &WebContents::GetProcessMemoryInfo)
       .SetProperty("id", &WebContents::ID)
       .SetProperty("session", &WebContents::Session)
       .SetProperty("hostWebContents", &WebContents::HostWebContents)

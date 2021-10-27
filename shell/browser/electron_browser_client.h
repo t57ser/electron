@@ -101,6 +101,8 @@ class ElectronBrowserClient : public content::ContentBrowserClient,
 
   device::GeolocationManager* GetGeolocationManager() override;
 
+  content::PlatformNotificationService* GetPlatformNotificationService();
+
  protected:
   void RenderProcessWillLaunch(content::RenderProcessHost* host) override;
   content::SpeechRecognitionManagerDelegate*
@@ -173,8 +175,6 @@ class ElectronBrowserClient : public content::ContentBrowserClient,
   content::MediaObserver* GetMediaObserver() override;
   std::unique_ptr<content::DevToolsManagerDelegate>
   CreateDevToolsManagerDelegate() override;
-  content::PlatformNotificationService* GetPlatformNotificationService(
-      content::BrowserContext* browser_context) override;
   std::unique_ptr<content::BrowserMainParts> CreateBrowserMainParts(
       const content::MainFunctionParams&) override;
   base::FilePath GetDefaultDownloadDirectory() override;
@@ -243,6 +243,7 @@ class ElectronBrowserClient : public content::ContentBrowserClient,
       int frame_tree_node_id,
       content::NavigationUIData* navigation_data,
       bool is_main_frame,
+      network::mojom::WebSandboxFlags sandbox_flags,
       ui::PageTransition page_transition,
       bool has_user_gesture,
       const absl::optional<url::Origin>& initiating_origin,
